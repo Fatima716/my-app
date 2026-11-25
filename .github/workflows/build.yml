@@ -48,6 +48,7 @@ jobs:
         working-directory: proj
         run: |
           npm install
+          npm install @capawesome/capacitor-file-picker@^6
           if [ "$FIREBASE" = "1" ]; then
             npm install @capacitor-firebase/authentication@^6 @capacitor-firebase/firestore@^6 firebase@^10
           fi

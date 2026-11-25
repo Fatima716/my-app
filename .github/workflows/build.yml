@@ -3,6 +3,11 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      fake_firebase:
+        description: "اختبار البناء مع Firebase بملف وهمي"
+        type: boolean
+        default: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,12 +26,47 @@ jobs:
           echo "Using $Z"
           mkdir proj
           unzip -q "$Z" -d proj
+      - name: Firebase config
+        run: |
+          if [ -f google-services.json ]; then
+            cp google-services.json proj/google-services.json
+            echo "FIREBASE=1" >> $GITHUB_ENV
+            echo "Using real google-services.json"
+          elif [ "${{ github.event.inputs.fake_firebase }}" = "true" ]; then
+            cat > proj/google-services.json <<'JSON'
+          {"project_info":{"project_number":"123456789012","project_id":"fake-project","storage_bucket":"fake-project.appspot.com"},
+           "client":[{"client_info":{"mobilesdk_app_id":"1:123456789012:android:0123456789abcdef","android_client_info":{"package_name":"com.personal.myapp"}},
+           "oauth_client":[],"api_key":[{"current_key":"AIzaSyFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0"}],
+           "services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}
+          JSON
+            echo "FIREBASE=1" >> $GITHUB_ENV
+            echo "Using FAKE google-services.json (test only)"
+          else
+            echo "No google-services.json: building without cloud sync"
+          fi
       - name: Create Android project
         working-directory: proj
         run: |
           npm install
+          if [ "$FIREBASE" = "1" ]; then
+            npm install @capacitor-firebase/authentication@^6 @capacitor-firebase/firestore@^6 firebase@^10
+          fi
           npx cap add android
+          if [ "$FIREBASE" = "1" ]; then
+            cp google-services.json android/app/google-services.json
+            sed -i 's/minSdkVersion = [0-9]*/minSdkVersion = 23/' android/variables.gradle
+          fi
+          cp -r icons-res/. android/app/src/main/res/
           npx cap sync android
+      - name: Diagnostics
+        working-directory: proj
+        run: |
+          cat android/variables.gradle
+          ls android/app/src/main/res/mipmap-anydpi-v26 || true
+          grep -n "google" android/build.gradle android/app/build.gradle || true
+          for d in node_modules/@capacitor-firebase/authentication node_modules/@capacitor-firebase/firestore; do
+            [ -d "$d" ] && grep -hoE "^\s+(getCurrentUser|signInWithGoogle|signOut|getDocument|setDocument|deleteDocument)\b[^;]*;" $d/dist/esm/definitions.d.ts || true
+          done
       - name: Use fixed signing key
         run: |
           mkdir -p ~/.android
